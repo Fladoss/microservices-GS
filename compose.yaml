@@ -1,0 +1,187 @@
+version: '3.8'
+services:
+  discovery-server:
+    build: ./discovery-server
+    image: fladoss/discovery-server:latest
+    container_name: discovery-server
+    environment:
+      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.client.register-with-eureka=false
+      - eureka.client.fetch-registry=false
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8761" ]
+      interval: 5s
+      timeout: 12s
+      retries: 7
+      start_period: 15s
+
+  api-gateway:
+    build: ./api-gateway
+    image: fladoss/api-gateway:latest
+    container_name: api-gateway
+    environment:
+      - spring.application.name=api-gateway
+      - server.port=8800
+      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - logging.level.root=INFO
+      - logging.level.org.springframework.cloud.gateway.route.RouteDefinitionLocator=INFO
+      - logging.level.org.springframework.cloud.gateway=TRACE
+        # route for Product Service
+      - spring.cloud.gateway.routes[0].id=product-service
+      - spring.cloud.gateway.routes[0].uri=lb://product-service
+      - spring.cloud.gateway.routes[0].predicates[0]=Path=/api/product
+        # route for Order Service
+      - spring.cloud.gateway.routes[1].id=order-service
+      - spring.cloud.gateway.routes[1].uri=lb://order-service
+      - spring.cloud.gateway.routes[1].predicates[0]=Path=/api/order
+        # route for Discovery Server
+      - spring.cloud.gateway.routes[2].id=discovery-server
+      - spring.cloud.gateway.routes[2].uri=http://discovery-server:8761
+      - spring.cloud.gateway.routes[2].predicates[0]=Path=/eureka/web
+      - spring.cloud.gateway.routes[2].filters[0]=SetPath=/
+    ports:
+      - "8800:8800"
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+
+  product-service:
+    build: ./product-service
+    image: fladoss/product-service:1.0
+    container_name: product-service
+    environment:
+      - spring.application.name=product-service
+      - spring.datasource.url=jdbc:postgresql://product_service_db:5434/product_service_db
+      - spring.datasource.username=vlados
+      - spring.datasource.password=vlados
+      - spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+      - spring.jpa.show-sql=true
+      - server.port=8888
+      - spring.liquibase.change-log=classpath:/db/changelog/liquibase_product.changelog-master.yaml
+      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.instance.prefer-ip-address=true
+    ports:
+      - "8888:8888"
+    depends_on:
+      product_service_db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+
+
+  product_service_db:
+    image: postgres:15.2
+    environment:
+      POSTGRES_DB: product_service_db
+      POSTGRES_USER: vlados
+      POSTGRES_PASSWORD: vlados
+    volumes:
+      - product_service_db_vol:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -p 5434 -U vlados -d product_service_db" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    expose:
+      - "5434"
+    ports:
+      - "5434:5434"
+    command: -p 5434
+    restart: unless-stopped
+
+
+  order-service:
+    build: ./order-service
+    image: fladoss/order-service:1.0
+    container_name: order-service
+    environment:
+      - spring.application.name=order-service
+      - spring.datasource.url=jdbc:postgresql://order_service_db:5435/order_service_db
+      - spring.datasource.username=vlados
+      - spring.datasource.password=vlados
+      - spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+      - server.port=8889
+      - spring.jpa.show-sql=true
+      - spring.liquibase.change-log=classpath:/db/changelog/liquibase_order.changelog-master.yaml
+      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.instance.prefer-ip-address=true
+    ports:
+      - "8889:8889"
+    depends_on:
+      order_service_db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+
+  order_service_db:
+    image: postgres:15.2
+    environment:
+      POSTGRES_DB: order_service_db
+      POSTGRES_USER: vlados
+      POSTGRES_PASSWORD: vlados
+    volumes:
+      - order_service_db_vol:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -p 5435 -U vlados -d order_service_db" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    expose:
+      - "5435"
+    ports:
+      - "5435:5435"
+    command: -p 5435
+    restart: unless-stopped
+
+  inventory-service:
+    build: ./inventory-service
+    deploy:
+      replicas: 3
+    image: fladoss/inventory-service:1.0
+#    container_name: inventory-service
+    environment:
+      - spring.application.name=inventory-service
+      - spring.datasource.url=jdbc:postgresql://inventory_service_db:5436/inventory_service_db
+      - spring.datasource.username=vlados
+      - spring.datasource.password=vlados
+      - spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+      - spring.jpa.show-sql=true
+      - server.port=0
+      - spring.liquibase.change-log=classpath:/db/changelog/liquibase_inventory.changelog-master.yaml
+      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.instance.prefer-ip-address=true
+    depends_on:
+      inventory_service_db:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+
+  inventory_service_db:
+    image: postgres:15.2
+    environment:
+      POSTGRES_DB: inventory_service_db
+      POSTGRES_USER: vlados
+      POSTGRES_PASSWORD: vlados
+    volumes:
+      - inventory_service_db_vol:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -p 5436 -U vlados -d inventory_service_db" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    expose:
+      - "5436"
+    ports:
+      - "5436:5436"
+    command: -p 5436
+    restart: unless-stopped
+
+volumes:
+  product_service_db_vol:
+    name: product_service_db_vol
+  order_service_db_vol:
+    name: order_service_db_vol
+  inventory_service_db_vol:
+    name: inventory_service_db_vol

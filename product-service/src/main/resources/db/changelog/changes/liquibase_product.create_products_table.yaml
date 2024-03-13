@@ -1,0 +1,38 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_products_table
+      author: vlados
+      changes:
+        - createTable:
+            tableName: products
+            ifNotExists: true
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: varchar(255)
+                  constraints:
+                    unique: true
+              - column:
+                  name: description
+                  type: varchar(255)
+              - column:
+                  name: price
+                  type: decimal
+  - changeSet:
+      id: add_auto_increment_to_products.id
+      author: vlados
+      changes:
+        - addAutoIncrement:
+            ifNotExists: true
+            tableName: products
+            columnName: id
+            columnDataType: bigint
+            generationType: BY DEFAULT
+            incrementBy: 1
+            startWith: 1

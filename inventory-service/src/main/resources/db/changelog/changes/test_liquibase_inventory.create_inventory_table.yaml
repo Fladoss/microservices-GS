@@ -1,0 +1,50 @@
+databaseChangeLog:
+  - changeSet:
+      id: test_create_inventory_table
+      author: vlados
+      changes:
+        - createTable:
+            tableName: inventory
+            ifNotExists: true
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: quantity
+                  type: integer
+              - column:
+                  name: sku_code
+                  type: varchar(30)
+                  constraints:
+                    unique: true
+  - changeSet:
+      id: test_add_auto_increment_to_inventory.id
+      author: vlados
+      changes:
+        - addAutoIncrement:
+            tableName: inventory
+            columnName: id
+            columnDataType: bigint
+            generationType: BY DEFAULT
+            incrementBy: 1
+            startWith: 1
+  - changeSet:
+      id: test_insert_into_inventory_1
+      author: vlados
+      changes:
+        - insert:
+            tableName: inventory
+            columns:
+              - column:
+                  name: id
+                  value: "0"
+              - column:
+                  name: quantity
+                  value: "100"
+              - column:
+                  name: sku_code
+                  value: "GAME_PC-The_Talos_Principle"

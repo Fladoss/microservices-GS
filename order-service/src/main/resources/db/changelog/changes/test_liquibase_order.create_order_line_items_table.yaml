@@ -1,0 +1,51 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_order_line_items_table
+      author: vlados
+      changes:
+        - createTable:
+            tableName: order_line_items
+            ifNotExists: true
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: price
+                  type: numeric(6,2)
+              - column:
+                  name: quantity
+                  type: integer
+              - column:
+                  name: sku_code
+                  type: varchar(30)
+                  constraints:
+                    unique: true
+              - column:
+                  name: order_id
+                  type: bigint
+  - changeSet:
+      id: add_fk_and_auto_increment_to_order_line_items
+      author: vlados
+      changes:
+        - addForeignKeyConstraint:
+            baseTableName: order_line_items
+            baseColumnNames: order_id
+            constraintName: order_line_items_order_id_fk
+            referencedColumnNames: id
+            referencedTableName: orders
+            onUpdate: RESTRICT
+  - changeSet:
+      id: add_auto_increment_to_order_line_items.id
+      author: vlados
+      changes:
+        - addAutoIncrement:
+            tableName: order_line_items
+            columnName: id
+            columnDataType: bigint
+            generationType: BY DEFAULT
+            incrementBy: 1
+            startWith: 1

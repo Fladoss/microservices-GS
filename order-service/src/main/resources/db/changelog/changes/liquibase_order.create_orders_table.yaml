@@ -1,0 +1,31 @@
+databaseChangeLog:
+  - changeSet:
+      id: create_orders_table
+      author: vlados
+      changes:
+        - createTable:
+            tableName: orders
+            ifNotExists: true
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: order_number
+                  type: varchar(255)
+                  constraints:
+                    unique: true
+  - changeSet:
+      id: add_auto_increment_to_orders.id
+      author: vlados
+      changes:
+        - addAutoIncrement:
+            tableName: orders
+            columnName: id
+            columnDataType: bigint
+            generationType: BY DEFAULT
+            incrementBy: 1
+            startWith: 1
