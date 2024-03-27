@@ -1,6 +1,7 @@
 package me.fladoss.microservicesorders.inventory_service.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import me.fladoss.microservicesorders.inventory_service.dto.InventoryRequest;
 import me.fladoss.microservicesorders.inventory_service.dto.InventoryResponse;

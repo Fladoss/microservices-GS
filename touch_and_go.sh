@@ -2,7 +2,7 @@ set -e
 
 docker compose down
 
-docker image prune
+docker image prune --force
 
 for service in product-service order-service inventory-service discovery-server api-gateway;
 do

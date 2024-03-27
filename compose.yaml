@@ -5,17 +5,17 @@ services:
     image: fladoss/discovery-server:latest
     container_name: discovery-server
     environment:
-      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
       - eureka.client.register-with-eureka=false
       - eureka.client.fetch-registry=false
     ports:
       - "8761:8761"
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8761" ]
-      interval: 5s
-      timeout: 12s
-      retries: 7
-      start_period: 15s
+      test: [ "CMD", "curl", "-f", "-u", "eureka:eureka", "http://localhost:8761" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+#      start_period: 15s
 
   api-gateway:
     build: ./api-gateway
@@ -24,7 +24,7 @@ services:
     environment:
       - spring.application.name=api-gateway
       - server.port=8800
-      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
       - logging.level.root=INFO
       - logging.level.org.springframework.cloud.gateway.route.RouteDefinitionLocator=INFO
       - logging.level.org.springframework.cloud.gateway=TRACE
@@ -36,16 +36,40 @@ services:
       - spring.cloud.gateway.routes[1].id=order-service
       - spring.cloud.gateway.routes[1].uri=lb://order-service
       - spring.cloud.gateway.routes[1].predicates[0]=Path=/api/order
+        #route for Inventory Service
+      - spring.cloud.gateway.routes[2].id=inventory-service
+      - spring.cloud.gateway.routes[2].uri=lb://inventory-service
+      - spring.cloud.gateway.routes[2].predicates[0]=Path=/api/inventory
         # route for Discovery Server
-      - spring.cloud.gateway.routes[2].id=discovery-server
-      - spring.cloud.gateway.routes[2].uri=http://discovery-server:8761
-      - spring.cloud.gateway.routes[2].predicates[0]=Path=/eureka/web
-      - spring.cloud.gateway.routes[2].filters[0]=SetPath=/
+      - spring.cloud.gateway.routes[3].id=discovery-server
+      - spring.cloud.gateway.routes[3].uri=http://discovery-server:8761
+      - spring.cloud.gateway.routes[3].predicates[0]=Path=/eureka/web
+      - spring.cloud.gateway.routes[3].filters[0]=SetPath=/
+        # route for Discovery Server's resources
+      - spring.cloud.gateway.routes[4].id=discovery-server
+      - spring.cloud.gateway.routes[4].uri=http://discovery-server:8761
+      - spring.cloud.gateway.routes[4].predicates[0]=Path=/eureka/**
+      - spring.cloud.gateway.routes[4].filters[0]=SetPath=/
+      - spring.security.oauth2.resourceserver.jwt.issuer-uri=http://keycloak:8080/realms/microservices-gs-realm
     ports:
       - "8800:8800"
     depends_on:
       discovery-server:
         condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KEYCLOAK_HEALTH_ENABLED=true
+    command: "start-dev"
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak_vol:/opt/keycloak/data
 
   product-service:
     build: ./product-service
@@ -60,7 +84,7 @@ services:
       - spring.jpa.show-sql=true
       - server.port=8888
       - spring.liquibase.change-log=classpath:/db/changelog/liquibase_product.changelog-master.yaml
-      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
       - eureka.instance.prefer-ip-address=true
     ports:
       - "8888:8888"
@@ -105,8 +129,27 @@ services:
       - server.port=8889
       - spring.jpa.show-sql=true
       - spring.liquibase.change-log=classpath:/db/changelog/liquibase_order.changelog-master.yaml
-      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
       - eureka.instance.prefer-ip-address=true
+      # Actuator
+      - management.health.circuitbreakers.enabled=true
+      - management.endpoints.web.exposure.include=*
+      - management.endpoint.health.show-details=always
+      #Resilience4j Properties
+      - resilience4j.circuitbreaker.instances.inventory.registerHealthIndicator=true
+      - resilience4j.circuitbreaker.instances.inventory.event-consumer-buffer-size=10
+      - resilience4j.circuitbreaker.instances.inventory.slidingWindowType=COUNT_BASED
+      - resilience4j.circuitbreaker.instances.inventory.slidingWindowSize=5
+      - resilience4j.circuitbreaker.instances.inventory.failureRateThreshold=50
+      - resilience4j.circuitbreaker.instances.inventory.waitDurationInOpenState=5s
+      - resilience4j.circuitbreaker.instances.inventory.permittedNumberOfCallsInHalfOpenState=3
+      - resilience4j.circuitbreaker.instances.inventory.automaticTransitionFromOpenToHalfOpenEnabled=true
+      #Resilience4j Properties
+      - resilience4j.timelimiter.instances.inventory.timeout-duration=5s
+      #Resilience4j Retry Properties
+      - resilience4j.retry.instances.inventory.max-attempts=5
+      - resilience4j.retry.instances.inventory.wait-duration=5s
+
     ports:
       - "8889:8889"
     depends_on:
@@ -150,7 +193,7 @@ services:
       - spring.jpa.show-sql=true
       - server.port=0
       - spring.liquibase.change-log=classpath:/db/changelog/liquibase_inventory.changelog-master.yaml
-      - eureka.client.serviceUrl.defaultZone=http://discovery-server:8761/eureka
+      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
       - eureka.instance.prefer-ip-address=true
     depends_on:
       inventory_service_db:
@@ -185,3 +228,5 @@ volumes:
     name: order_service_db_vol
   inventory_service_db_vol:
     name: inventory_service_db_vol
+  keycloak_vol:
+    name: keycloak_vol

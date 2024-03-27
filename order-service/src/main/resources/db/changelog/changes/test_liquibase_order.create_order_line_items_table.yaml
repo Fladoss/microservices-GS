@@ -22,8 +22,8 @@ databaseChangeLog:
               - column:
                   name: sku_code
                   type: varchar(30)
-                  constraints:
-                    unique: true
+#                  constraints:
+#                    unique: true
               - column:
                   name: order_id
                   type: bigint
