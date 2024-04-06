@@ -1,56 +1,64 @@
 version: '3.8'
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka-1:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-1
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  kafka-2:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-2
+    depends_on:
+      - zookeeper
+    ports:
+      - "39092:39092"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
   discovery-server:
     build: ./discovery-server
-    image: fladoss/discovery-server:latest
+    image: fladoss/discovery-server:1.0
     container_name: discovery-server
     environment:
-      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
-      - eureka.client.register-with-eureka=false
-      - eureka.client.fetch-registry=false
+      - SPRING_PROFILES_ACTIVE=docker
     ports:
       - "8761:8761"
     healthcheck:
-      test: [ "CMD", "curl", "-f", "-u", "eureka:eureka", "http://localhost:8761" ]
+      test: [ "CMD", "curl", "-f", "-u", "eureka:eureka", "http://0.0.0.0:8761" ]
       interval: 10s
       timeout: 10s
       retries: 10
-#      start_period: 15s
 
   api-gateway:
     build: ./api-gateway
-    image: fladoss/api-gateway:latest
+    image: fladoss/api-gateway:1.0
     container_name: api-gateway
     environment:
-      - spring.application.name=api-gateway
-      - server.port=8800
-      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
-      - logging.level.root=INFO
-      - logging.level.org.springframework.cloud.gateway.route.RouteDefinitionLocator=INFO
-      - logging.level.org.springframework.cloud.gateway=TRACE
-        # route for Product Service
-      - spring.cloud.gateway.routes[0].id=product-service
-      - spring.cloud.gateway.routes[0].uri=lb://product-service
-      - spring.cloud.gateway.routes[0].predicates[0]=Path=/api/product
-        # route for Order Service
-      - spring.cloud.gateway.routes[1].id=order-service
-      - spring.cloud.gateway.routes[1].uri=lb://order-service
-      - spring.cloud.gateway.routes[1].predicates[0]=Path=/api/order
-        #route for Inventory Service
-      - spring.cloud.gateway.routes[2].id=inventory-service
-      - spring.cloud.gateway.routes[2].uri=lb://inventory-service
-      - spring.cloud.gateway.routes[2].predicates[0]=Path=/api/inventory
-        # route for Discovery Server
-      - spring.cloud.gateway.routes[3].id=discovery-server
-      - spring.cloud.gateway.routes[3].uri=http://discovery-server:8761
-      - spring.cloud.gateway.routes[3].predicates[0]=Path=/eureka/web
-      - spring.cloud.gateway.routes[3].filters[0]=SetPath=/
-        # route for Discovery Server's resources
-      - spring.cloud.gateway.routes[4].id=discovery-server
-      - spring.cloud.gateway.routes[4].uri=http://discovery-server:8761
-      - spring.cloud.gateway.routes[4].predicates[0]=Path=/eureka/**
-      - spring.cloud.gateway.routes[4].filters[0]=SetPath=/
-      - spring.security.oauth2.resourceserver.jwt.issuer-uri=http://keycloak:8080/realms/microservices-gs-realm
+      - SPRING_PROFILES_ACTIVE=docker
     ports:
       - "8800:8800"
     depends_on:
@@ -58,42 +66,80 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+      zipkin:
+        condition: service_started
 
   keycloak:
     image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    command: [ "start-dev", "--import-realm" ]
     environment:
-      - KEYCLOAK_ADMIN=admin
-      - KEYCLOAK_ADMIN_PASSWORD=admin
-      - KEYCLOAK_HEALTH_ENABLED=true
-    command: "start-dev"
+      DB_VENDOR: POSTGRESQL
+      DB_ADDR: keycloak_db
+      DB_PORT: 18080
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_HEALTH_ENABLED: true
     ports:
       - "8080:8080"
     volumes:
-      - keycloak_vol:/opt/keycloak/data
+      - ./realms:/opt/keycloak/data/import/
+    depends_on:
+      keycloak_db:
+        condition: service_healthy
+
+  keycloak_db:
+    image: postgres:15.2
+    container_name: keycloak_db
+    environment:
+      POSTGRES_DB: keycloak_db_vol
+      POSTGRES_USER: vlados
+      POSTGRES_PASSWORD: vlados
+    volumes:
+      - keycloak_db_vol:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -p 18080 -U vlados -d keycloak_db" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    expose:
+      - "18080"
+    ports:
+      - "18080:18080"
+    command: -p 18080
+    restart: unless-stopped
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+
+  notification-service:
+    build: ./notification-service
+    image: fladoss/notification-service:1.0
+    container_name: notification-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      zipkin:
+        condition: service_started
 
   product-service:
     build: ./product-service
     image: fladoss/product-service:1.0
     container_name: product-service
     environment:
-      - spring.application.name=product-service
-      - spring.datasource.url=jdbc:postgresql://product_service_db:5434/product_service_db
-      - spring.datasource.username=vlados
-      - spring.datasource.password=vlados
-      - spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
-      - spring.jpa.show-sql=true
-      - server.port=8888
-      - spring.liquibase.change-log=classpath:/db/changelog/liquibase_product.changelog-master.yaml
-      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
-      - eureka.instance.prefer-ip-address=true
-    ports:
-      - "8888:8888"
+      - SPRING_PROFILES_ACTIVE=docker
     depends_on:
       product_service_db:
         condition: service_healthy
       discovery-server:
         condition: service_healthy
-
+      zipkin:
+        condition: service_started
 
   product_service_db:
     image: postgres:15.2
@@ -115,48 +161,19 @@ services:
     command: -p 5434
     restart: unless-stopped
 
-
   order-service:
     build: ./order-service
     image: fladoss/order-service:1.0
     container_name: order-service
     environment:
-      - spring.application.name=order-service
-      - spring.datasource.url=jdbc:postgresql://order_service_db:5435/order_service_db
-      - spring.datasource.username=vlados
-      - spring.datasource.password=vlados
-      - spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
-      - server.port=8889
-      - spring.jpa.show-sql=true
-      - spring.liquibase.change-log=classpath:/db/changelog/liquibase_order.changelog-master.yaml
-      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
-      - eureka.instance.prefer-ip-address=true
-      # Actuator
-      - management.health.circuitbreakers.enabled=true
-      - management.endpoints.web.exposure.include=*
-      - management.endpoint.health.show-details=always
-      #Resilience4j Properties
-      - resilience4j.circuitbreaker.instances.inventory.registerHealthIndicator=true
-      - resilience4j.circuitbreaker.instances.inventory.event-consumer-buffer-size=10
-      - resilience4j.circuitbreaker.instances.inventory.slidingWindowType=COUNT_BASED
-      - resilience4j.circuitbreaker.instances.inventory.slidingWindowSize=5
-      - resilience4j.circuitbreaker.instances.inventory.failureRateThreshold=50
-      - resilience4j.circuitbreaker.instances.inventory.waitDurationInOpenState=5s
-      - resilience4j.circuitbreaker.instances.inventory.permittedNumberOfCallsInHalfOpenState=3
-      - resilience4j.circuitbreaker.instances.inventory.automaticTransitionFromOpenToHalfOpenEnabled=true
-      #Resilience4j Properties
-      - resilience4j.timelimiter.instances.inventory.timeout-duration=5s
-      #Resilience4j Retry Properties
-      - resilience4j.retry.instances.inventory.max-attempts=5
-      - resilience4j.retry.instances.inventory.wait-duration=5s
-
-    ports:
-      - "8889:8889"
+      - SPRING_PROFILES_ACTIVE=docker
     depends_on:
       order_service_db:
         condition: service_healthy
       discovery-server:
         condition: service_healthy
+      zipkin:
+        condition: service_started
 
   order_service_db:
     image: postgres:15.2
@@ -181,25 +198,18 @@ services:
   inventory-service:
     build: ./inventory-service
     deploy:
-      replicas: 3
+      replicas: 2
     image: fladoss/inventory-service:1.0
-#    container_name: inventory-service
+    #    container_name: inventory-service
     environment:
-      - spring.application.name=inventory-service
-      - spring.datasource.url=jdbc:postgresql://inventory_service_db:5436/inventory_service_db
-      - spring.datasource.username=vlados
-      - spring.datasource.password=vlados
-      - spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
-      - spring.jpa.show-sql=true
-      - server.port=0
-      - spring.liquibase.change-log=classpath:/db/changelog/liquibase_inventory.changelog-master.yaml
-      - eureka.client.serviceUrl.defaultZone=http://eureka:eureka@discovery-server:8761/eureka
-      - eureka.instance.prefer-ip-address=true
+      - SPRING_PROFILES_ACTIVE=docker
     depends_on:
       inventory_service_db:
         condition: service_healthy
       discovery-server:
         condition: service_healthy
+      zipkin:
+        condition: service_started
 
   inventory_service_db:
     image: postgres:15.2
@@ -230,3 +240,5 @@ volumes:
     name: inventory_service_db_vol
   keycloak_vol:
     name: keycloak_vol
+  keycloak_db_vol:
+    name: keycloak_db_vol
