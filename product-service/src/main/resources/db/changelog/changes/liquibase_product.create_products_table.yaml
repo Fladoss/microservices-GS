@@ -29,7 +29,6 @@ databaseChangeLog:
       author: vlados
       changes:
         - addAutoIncrement:
-            ifNotExists: true
             tableName: products
             columnName: id
             columnDataType: bigint
